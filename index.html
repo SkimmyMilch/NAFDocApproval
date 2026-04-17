@@ -617,33 +617,107 @@ async function API_sendReminder(docId) {
 }
 
 async function API_uploadFile(file) {
-  return new Promise(function(resolve) {
-    if (!file) { resolve({ driveId: null, filename: '' }); return; }
-    var reader = new FileReader();
-    reader.onload = function() {
-      var base64 = reader.result.split(',')[1];
-      fetch(BACKEND, {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'uploadFile',
-          base64: base64,
-          filename: file.name,
-          mimeType: file.type || 'application/octet-stream'
+  if (!file) return { driveId: null, filename: '' };
+
+  var mimeType = file.type || 'application/octet-stream';
+  var filename = file.name;
+
+  try {
+    // ── Step 1: get a short-lived OAuth token from Apps Script ──
+    var tokenRes = await fetch(BACKEND, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'getUploadToken', filename: filename, mimeType: mimeType })
+    });
+    var tokenData = await tokenRes.json();
+    if (tokenData.error) throw new Error(tokenData.error);
+
+    var oauthToken = tokenData.token;
+    var folderId   = tokenData.folderId;
+
+    // ── Step 2: upload the file directly to Google Drive API ────
+    // Use multipart upload so metadata + file go in one request
+    var metadata = JSON.stringify({
+      name:    filename,
+      mimeType: mimeType,
+      parents: [folderId]
+    });
+
+    var boundary = 'naf_upload_boundary';
+    var delimiter = '\r\n--' + boundary + '\r\n';
+    var closeDelim = '\r\n--' + boundary + '--';
+
+    // Read file as ArrayBuffer for binary safety
+    var fileBuffer = await file.arrayBuffer();
+
+    // Build multipart body manually using Blob
+    var metaPart = new Blob([
+      '--' + boundary + '\r\n',
+      'Content-Type: application/json\r\n\r\n',
+      metadata + '\r\n'
+    ]);
+    var filePart = new Blob([
+      '--' + boundary + '\r\n',
+      'Content-Type: ' + mimeType + '\r\n\r\n'
+    ]);
+    var endPart = new Blob(['\r\n--' + boundary + '--']);
+
+    var body = new Blob([metaPart, filePart, fileBuffer, endPart]);
+
+    var uploadRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+      {
+        method:  'POST',
+        headers: {
+          'Authorization': 'Bearer ' + oauthToken,
+          'Content-Type':  'multipart/related; boundary=' + boundary
+        },
+        body: body
+      }
+    );
+
+    if (!uploadRes.ok) {
+      var errText = await uploadRes.text();
+      throw new Error('Drive API error: ' + uploadRes.status + ' — ' + errText);
+    }
+
+    var uploadData = await uploadRes.json();
+    var fileId = uploadData.id;
+
+    // ── Step 3: tell Apps Script to set sharing on the new file ─
+    var finalRes = await fetch(BACKEND, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'finalizeUpload', fileId: fileId, filename: filename })
+    });
+    var finalData = await finalRes.json();
+    if (finalData.error) throw new Error(finalData.error);
+
+    return { driveId: finalData.driveId, filename: finalData.filename };
+
+  } catch(e) {
+    // ── Fallback: base64 via Apps Script (small files only) ─────
+    console.warn('Direct upload failed, falling back to base64:', e.message);
+    return new Promise(function(resolve) {
+      var reader = new FileReader();
+      reader.onload = function() {
+        var base64 = reader.result.split(',')[1];
+        fetch(BACKEND, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'uploadFile', base64: base64, filename: filename, mimeType: mimeType })
         })
-      })
-      .then(function(res) { return res.json(); })
-      .then(function(data) {
-        if (data.error) throw new Error(data.error);
-        resolve({ driveId: data.driveId, filename: data.filename });
-      })
-      .catch(function(e) {
-        showToast('Upload gagal: ' + e.message);
-        resolve({ driveId: null, filename: file.name });
-      });
-    };
-    reader.onerror = function() { resolve({ driveId: null, filename: file.name }); };
-    reader.readAsDataURL(file);
-  });
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.error) throw new Error(d.error);
+          resolve({ driveId: d.driveId, filename: d.filename });
+        })
+        .catch(function(err) {
+          showToast('Upload gagal: ' + err.message);
+          resolve({ driveId: null, filename: filename });
+        });
+      };
+      reader.onerror = function() { resolve({ driveId: null, filename: filename }); };
+      reader.readAsDataURL(file);
+    });
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────
