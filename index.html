@@ -561,8 +561,9 @@ const BACKEND = 'https://script.google.com/macros/s/AKfycbzsrpqO9S7MLcaSHCpYl8xI
 
 async function API_loadDocuments() {
   try {
-    const res = await fetch(BACKEND + '?action=loadDocuments');
-    const data = await res.json();
+    const res = await fetch(BACKEND + '?action=loadDocuments', { redirect: 'follow' });
+    const text = await res.text();
+    const data = JSON.parse(text);
     if (data.error) throw new Error(data.error);
     return Array.isArray(data) ? data : [];
   } catch(e) {
@@ -575,9 +576,11 @@ async function API_submitDocument(payload) {
   try {
     const res = await fetch(BACKEND, {
       method: 'POST',
+      redirect: 'follow',
       body: JSON.stringify(Object.assign({ action: 'submitDocument' }, payload))
     });
-    const data = await res.json();
+    const text = await res.text();
+    const data = JSON.parse(text);
     if (data.error) throw new Error(data.error);
     return data;
   } catch(e) {
@@ -590,9 +593,11 @@ async function API_decide(docId, approverKey, action, comment) {
   try {
     const res = await fetch(BACKEND, {
       method: 'POST',
+      redirect: 'follow',
       body: JSON.stringify({ action: 'decide', docId: docId, approverKey: approverKey, action: action, comment: comment })
     });
-    const data = await res.json();
+    const text = await res.text();
+    const data = JSON.parse(text);
     if (data.error) throw new Error(data.error);
     return data;
   } catch(e) {
@@ -605,9 +610,11 @@ async function API_sendReminder(docId) {
   try {
     const res = await fetch(BACKEND, {
       method: 'POST',
+      redirect: 'follow',
       body: JSON.stringify({ action: 'sendReminder', docId: docId })
     });
-    const data = await res.json();
+    const text = await res.text();
+    const data = JSON.parse(text);
     if (data.error) throw new Error(data.error);
     return data;
   } catch(e) {
