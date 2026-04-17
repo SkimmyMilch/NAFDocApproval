@@ -336,7 +336,8 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
             </div>
           </div>
           <div style="padding:14px">
-            <div class="upload-zone" id="upload-zone" onclick="handleUpload()">
+            <input type="file" id="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style="display:none" onchange="onFileSelected(this)">
+            <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
               <div style="font-size:28px">📄</div>
               <div class="upload-label"><strong>Klik untuk upload</strong> atau drag &amp; drop</div>
               <div style="font-size:11px;color:var(--text3);margin-top:4px">PDF, DOCX, XLSX · Maks 50MB</div>
@@ -866,30 +867,53 @@ function renderAll() {
 var _uploadedDriveId = null;
 var _uploadedFilename = null;
 
+function onFileSelected(input) {
+  var file = input.files[0];
+  if (!file) return;
+  processUpload(file);
+  // Reset so same file can be re-selected if needed
+  input.value = '';
+}
+
+function processUpload(file) {
+  var zone = document.getElementById('upload-zone');
+  // Show uploading state
+  zone.innerHTML =
+    '<div style="font-size:24px">⏳</div>' +
+    '<div class="upload-label">Mengupload <strong>' + file.name + '</strong> ke Google Drive...</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-top:4px">' + (file.size / 1024 / 1024).toFixed(2) + ' MB</div>';
+  zone.classList.remove('uploaded');
+
+  API_uploadFile(file).then(function(result) {
+    _uploadedDriveId = result.driveId;
+    _uploadedFilename = result.filename || file.name;
+
+    // Show success state
+    zone.innerHTML =
+      '<div style="font-size:24px">✅</div>' +
+      '<div class="upload-label" style="color:var(--green)"><strong>' + _uploadedFilename + '</strong> berhasil diupload ke Google Drive</div>';
+    zone.classList.add('uploaded');
+
+    var s = document.getElementById('upload-success');
+    s.style.display = 'flex';
+    document.getElementById('upload-filename').textContent = _uploadedFilename + ' tersimpan di Google Drive ✓';
+
+    // Auto-fill title from filename if empty
+    if (!document.getElementById('nd-title').value.trim()) {
+      document.getElementById('nd-title').value = _uploadedFilename.replace(/\.[^\.]+$/, '');
+    }
+  }).catch(function(e) {
+    zone.innerHTML =
+      '<div style="font-size:24px">❌</div>' +
+      '<div class="upload-label" style="color:var(--red)">Upload gagal: ' + e.message + '</div>' +
+      '<div style="font-size:11px;color:var(--text3);margin-top:4px">Klik untuk coba lagi</div>';
+    zone.classList.remove('uploaded');
+  });
+}
+
+// handleUpload kept for backward compat (not used now — onclick goes to file-input directly)
 function handleUpload() {
-  // Trigger a real file picker
-  var input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx';
-  input.onchange = function() {
-    var file = input.files[0];
-    if (!file) return;
-    var zone = document.getElementById('upload-zone');
-    zone.innerHTML = '<div style="font-size:24px">⏳</div><div class="upload-label">Mengupload <strong>' + file.name + '</strong> ke Google Drive...</div>';
-    API_uploadFile(file).then(function(result) {
-      _uploadedDriveId = result.driveId;
-      _uploadedFilename = result.filename || file.name;
-      zone.innerHTML = '<div style="font-size:24px">✅</div><div class="upload-label" style="color:var(--green)"><strong>' + _uploadedFilename + '</strong> berhasil diupload</div>';
-      zone.classList.add('uploaded');
-      var s = document.getElementById('upload-success');
-      s.style.display = 'flex';
-      document.getElementById('upload-filename').textContent = _uploadedFilename + ' tersimpan di Google Drive ✓';
-      if (!document.getElementById('nd-title').value) {
-        document.getElementById('nd-title').value = _uploadedFilename.replace(/\.[^.]+$/, '');
-      }
-    });
-  };
-  input.click();
+  document.getElementById('file-input').click();
 }
 
 function submitDocument() {
@@ -973,6 +997,28 @@ document.getElementById('nd-date').value = new Date().toISOString().split('T')[0
 API_loadDocuments().then(function(docs) {
   DOCS = docs;
   renderAll();
+});
+
+// Drag-and-drop on upload zone
+document.addEventListener('DOMContentLoaded', function() {
+  var zone = document.getElementById('upload-zone');
+  if (!zone) return;
+  zone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    zone.style.borderColor = 'var(--blue)';
+    zone.style.background = 'var(--blue-lt)';
+  });
+  zone.addEventListener('dragleave', function() {
+    zone.style.borderColor = '';
+    zone.style.background = '';
+  });
+  zone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    zone.style.borderColor = '';
+    zone.style.background = '';
+    var file = e.dataTransfer.files[0];
+    if (file) processUpload(file);
+  });
 });
 
 </script>
