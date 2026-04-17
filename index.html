@@ -389,7 +389,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
               <input id="a1-name" placeholder="Nama lengkap">
               <input id="a1-wa" placeholder="Nomor WhatsApp (e.g. 628123456789)">
             </div>
-            <div class="approver-block ab-teal">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0">
+              <span style="font-size:12px;font-weight:500;color:var(--text2)">Approver 2 <span style="font-size:11px;color:var(--text3);font-weight:400">(opsional)</span></span>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text2)">
+                <span id="a2-toggle-label">Nonaktif</span>
+                <div id="a2-toggle" onclick="toggleA2()" style="width:36px;height:20px;border-radius:20px;background:#ddd;position:relative;cursor:pointer;transition:background .2s;flex-shrink:0">
+                  <div id="a2-toggle-knob" style="width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></div>
+                </div>
+              </label>
+            </div>
+            <div class="approver-block ab-teal" id="a2-block" style="display:none">
               <div class="ab-label abl-teal">Approver 2</div>
               <input id="a2-name" placeholder="Nama lengkap">
               <input id="a2-wa" placeholder="Nomor WhatsApp (e.g. 628198765432)">
@@ -641,9 +650,12 @@ async function API_uploadFile(file) {
    HELPERS
 ───────────────────────────────────────────────────────────────── */
 function overallStatus(doc) {
-  if (doc.a1.status === 'rejected' || doc.a2.status === 'rejected') return 'rejected';
-  if (doc.a1.status === 'approved' && doc.a2.status === 'approved') return 'approved';
-  if (doc.a1.status === 'approved' || doc.a2.status === 'approved') return 'partial';
+  var a2 = doc.a2;
+  var a2na = !a2 || !a2.name || a2.status === 'n/a';
+  if (doc.a1.status === 'rejected') return 'rejected';
+  if (!a2na && a2.status === 'rejected') return 'rejected';
+  if (doc.a1.status === 'approved' && (a2na || a2.status === 'approved')) return 'approved';
+  if (doc.a1.status === 'approved' && !a2na) return 'partial';
   return 'pending';
 }
 
@@ -917,12 +929,14 @@ function handleUpload() {
 }
 
 function submitDocument() {
-  var title = document.getElementById('nd-title').value.trim();
+  var title  = document.getElementById('nd-title').value.trim();
   var a1name = document.getElementById('a1-name').value.trim();
   var a2name = document.getElementById('a2-name').value.trim();
+  var a2active = document.getElementById('a2-block').style.display !== 'none';
+
   if (!title)  { showToast('Harap isi judul dokumen'); return; }
   if (!a1name) { showToast('Harap isi nama Approver 1'); return; }
-  if (!a2name) { showToast('Harap isi nama Approver 2'); return; }
+  if (a2active && !a2name) { showToast('Harap isi nama Approver 2 atau nonaktifkan'); return; }
 
   var payload = {
     title:   title,
@@ -931,13 +945,14 @@ function submitDocument() {
     desc:    document.getElementById('nd-notes').value.trim(),
     driveId: _uploadedDriveId || null,
     a1: { name: a1name, wa: document.getElementById('a1-wa').value.trim() },
-    a2: { name: a2name, wa: document.getElementById('a2-wa').value.trim() }
+    a2: a2active ? { name: a2name, wa: document.getElementById('a2-wa').value.trim() } : null
   };
 
   API_submitDocument(payload).then(function() {
     renderAll();
     var fb = document.getElementById('submit-feedback');
-    fb.textContent = '✓ Dokumen dikirim! Notifikasi WhatsApp terkirim ke ' + a1name + ' & ' + a2name + '.';
+    var names = a2active && a2name ? a1name + ' & ' + a2name : a1name;
+    fb.textContent = '✓ Dokumen dikirim! Notifikasi WhatsApp terkirim ke ' + names + '.';
     fb.style.display = 'block';
     showToast('Dokumen berhasil dikirim ✓');
     setTimeout(function(){ fb.style.display = 'none'; }, 4000);
@@ -974,6 +989,27 @@ function sendReminderAction(docId) {
 /* ─────────────────────────────────────────────────────────────
    UI UTILS
 ───────────────────────────────────────────────────────────────── */
+function toggleA2() {
+  var block   = document.getElementById('a2-block');
+  var toggle  = document.getElementById('a2-toggle');
+  var knob    = document.getElementById('a2-toggle-knob');
+  var label   = document.getElementById('a2-toggle-label');
+  var active  = block.style.display === 'none';
+  if (active) {
+    block.style.display = 'block';
+    toggle.style.background = 'var(--green)';
+    knob.style.left = '18px';
+    label.textContent = 'Aktif';
+  } else {
+    block.style.display = 'none';
+    toggle.style.background = '#ddd';
+    knob.style.left = '2px';
+    label.textContent = 'Nonaktif';
+    document.getElementById('a2-name').value = '';
+    document.getElementById('a2-wa').value = '';
+  }
+}
+
 function showTab(name, el) {
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
   document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
